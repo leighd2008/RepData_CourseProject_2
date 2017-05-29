@@ -1,0 +1,364 @@
+---
+title: "Health and Economic Consequences of Storm Events"
+author: "Diane Leigh"
+date: "May 27, 2017"
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# ipak function: install and load multiple R packages.
+# check to see if packages are installed. Install them if they are not, then load them into the R session.
+
+ipak <- function(pkg){
+    new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+    if (length(new.pkg)) 
+        install.packages(new.pkg, dependencies = TRUE)
+    sapply(pkg, require, character.only = TRUE)
+}
+
+packages <- c("tidyverse", "data.table", "xtable")
+ipak(packages)
+
+```
+
+## Synopsis
+
+## Data Processing
+
+```{r Download_Read_Data, cache=TRUE}
+
+# download and read Storm Data file
+fileUrl <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+if(!file.exists("StormData.bz2"))download.file(fileUrl, "StormData.bz2")
+if(!exists("StormData"))StormData <- read.csv("StormData.bz2")
+
+```
+
+We have two questions to answer: 
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+2. Across the United States, which types of events have the greatest economic consequences? 
+So we created two subsets with only the necessary columns of data to answer the two (pophealth, economics) questions.
+
+```{r, subset_data, cache=TRUE}
+
+
+# Subset data to include only Reference number, EventData, Fatality, and Injury data to look at population health question. Include only data where either Fatality or Injury is not zero.
+pophealth <- as.data.table(StormData[, c("REFNUM", "EVTYPE", "FATALITIES", "INJURIES")])
+pophealth <- pophealth[FATALITIES>0|INJURIES>0]
+
+# Subset data to include only Reference number, EventData,  Proper Damage and Crop Damage data to look at economics question.  Include only data where either PROPDMG or CROPDMG is not zero
+economics <- as.data.table(StormData[, c("REFNUM","EVTYPE", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")])
+economics <- economics[PROPDMG>0|CROPDMG>0]
+
+
+# convert damage costs to dollars using multiplyers B = billions = 1E9, M = Millions = 1E6 and K = Thousands = 1E3. Then add property damage cost and crop damage cost.
+x <-levels(economics$PROPDMGEXP)
+y <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1e9, 1e2, 1e2, 1e3, 1e6, 1e6)
+df1 <- data.table(PROPDMGEXP=x, PRPMULT = y)
+w <-levels(economics$CROPDMGEXP)
+z <- c(1, 1, 1, 1, 1e9, 1e3, 1e3, 1e6, 1e6)
+df2 <- data.table(CROPDMGEXP=w, CRPMULT = z)
+
+setkey(df1, PROPDMGEXP)
+setkey(economics, PROPDMGEXP)
+economics <- economics[df1]
+setkey(df2, CROPDMGEXP)
+setkey(economics, CROPDMGEXP)
+economics <- economics[df2]
+
+economics <- economics[, ':='(prpcst = PROPDMG * PRPMULT)]
+economics <- economics[, ':='(prpcst = CROPDMG * CRPMULT)]
+economics <- economics[, ':='(cost = prpcst + prpcst)]
+
+```
+
+The EVTYPE column is not consistent with identifying an event (i.e. "COLD" and "COLD WAVE")  There are 48 EVTYPE identifiers in the STORM DATA PREPARATION provided by the National Weather Service (https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf), and 985 unique EVTYPE identifiers in the Storm Data. This next block cleans up the EVTYPE column in the subsetted data to match the events in the file supplied by the National Weather Service.
+
+```{r, tidy_health_data, cache=TRUE}
+pophealth <- mutate_each(pophealth, funs(toupper))
+# Get and combine unique event types in the subsetted data
+popev <- data.table(unique(pophealth$EVTYPE, names("EVTYPE")))
+names(popev) <- "EVTYPE"
+popev <- mutate(popev, EVENT = "")
+
+# Identify EVENTs which correspond to multiple EVTYPEs
+
+for(i in 1:nrow(popev)){
+       if(grepl(".*TORN.*|.*FUNNEL.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "TORNADO"
+       }
+     else if(grepl(".*HURRICANE.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "HURRICANE"
+     }
+     else if(grepl(".*AVALAN.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "AVALANCHE"
+     }
+     else if(grepl(".*BLIZ.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "BLIZZARD"
+     }
+     else if(grepl(".*SNOW.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "HEAVY_SNOW"
+     }
+     else if(grepl(".*COASTAL.*FLOOD.*|.*TIDAL.*FLOOD.*|.*EROSION.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "COASTAL_FLOOD"
+     }
+     else if(grepl(".*FLASH.*FLOOD.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "FLASH_FLOOD"
+     }
+     else if(grepl(".*FLOOD.*|.*RISING.*|.*WATER.*|.*FLD.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "FLOOD"
+     }
+     else if(grepl(".*COLD.*|.*CHILL.*|.*LOW TEMP.*|.*HYPOTHERM.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "COLD/WIND_CHILL"
+     }
+     else if(grepl(".*DROUGHT.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "DROUGHT"
+     }
+     else if(grepl(".*HEAT.*|.*HYPERTHERM.*|.*WARM.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "HEAT"
+     }
+     else if(grepl(".*COASTAL.*STORM.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "COASTAL_STORM"
+     }
+     else if(grepl(".*LIG.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "LIGHTNING"
+     }
+     else if(grepl(".*MARINE.*THUND.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "MARINE_THUNDERSTORM_WIND"
+     }
+     else if(grepl(".*THUND.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "THUNDERSTORM WIND"
+     }
+     else if(grepl(".*DRY.*|.*DUST.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "DUST_STORM"
+     }
+     else if(grepl(".*SLIDE.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "LANDSLIDE"
+     }
+     else if(grepl(".*RIP.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "RIP_CURRENT"
+     }
+     else if(grepl(".*FREEZE.*|.*FROST.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "ICE/FREEZE"
+     }
+     else if(grepl(".*FREEZING.*|.*GLAZE.*|.*ICE STORM.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "ICE_STORM"
+     }
+     else if(grepl(".*RAIN.*|.*DOWNBURST.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "HEAVY_RAIN"
+     }
+     else if(grepl(".*SEA.*|.*SURF.*|.*SWELLS.*|.*WAVE.*|.*HIGH.*TIDE.*|.*SURGE.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "HIGH_SURF"
+     }
+     else if(grepl(".*LOW.*TIDE.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "LOW_TIDE"
+     }
+     else if(grepl(".*ROAD.*|.*ICE.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "ICY_ROAD"
+     }
+     else if(grepl(".*MARINE.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "MARINE_HIGH_WIND"
+     }
+     else if(grepl(".*TROPICAL.*|.*TSTM.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "TROPICAL_STORM"
+     }
+     else if(grepl(".*WIND.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "HIGH_WIND"
+     }
+     else if(grepl(".*FIRE.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "WILDFIRE"
+     }
+     else if(grepl(".*WINTER.*|.*WINTRY.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "WINTER_STORM"
+     }
+     else if(grepl(".*HAIL.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "HAIL"
+     }
+     else if(grepl(".*FOG.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "DENSE_FOG"
+     }
+     else if(grepl(".*TSU.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "TSUNAMI"
+     }
+     else if(grepl(".*TYPH.*", popev$EVTYPE[i])){
+            popev$EVENT[i] <- "TYPHOON"
+     }
+     else {popev$EVENT[i] <- "OTHER"}
+}
+
+#Create column in subsetted data to group EVTYPE by EVENT
+pophealth <- as.data.table(pophealth)
+
+pophealth <- merge(pophealth, popev, all.x = TRUE)
+
+pophealth$EVENT <- as.factor(pophealth$EVENT)
+pophealth$EVTYPE <- as.factor(pophealth$EVTYPE)
+pophealth$FATALITIES <- as.numeric(pophealth$FATALITIES)
+pophealth$INJURIES <- as.numeric(pophealth$INJURIES)
+
+
+
+
+```
+
+```{r, tidy_economics_data, cache=TRUE}
+economics <- mutate_each(economics, funs(toupper))
+# Get and combine unique event types in the subsetted data
+ecoev <- data.table(unique(economics$EVTYPE, names("EVTYPE")))
+names(ecoev) <- "EVTYPE"
+ecoev <- mutate(ecoev, EVENT = "")
+
+# Identify EVENTs which correspond to multiple EVTYPEs
+
+for(i in 1:nrow(ecoev)){
+       if(grepl(".*TORN.*|.*FUNNEL.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "TORNADO"
+       }
+     else if(grepl(".*HURRICANE.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "HURRICANE"
+     }
+     else if(grepl(".*AVALAN.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "AVALANCHE"
+     }
+     else if(grepl(".*BLIZ.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "BLIZZARD"
+     }
+     else if(grepl(".*SNOW.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "HEAVY_SNOW"
+     }
+     else if(grepl(".*COASTAL.*FLOOD.*|.*TIDAL.*FLOOD.*|.*EROSION.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "COASTAL_FLOOD"
+     }
+     else if(grepl(".*FLASH.*FLOOD.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "FLASH_FLOOD"
+     }
+     else if(grepl(".*FLOOD.*|.*RISING.*|.*WATER.*|.*FLD.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "FLOOD"
+     }
+     else if(grepl(".*COLD.*|.*CHILL.*|.*LOW TEMP.*|.*HYPOTHERM.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "COLD/WIND_CHILL"
+     }
+     else if(grepl(".*DROUGHT.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "DROUGHT"
+     }
+     else if(grepl(".*HEAT.*|.*HYPERTHERM.*|.*WARM.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "HEAT"
+     }
+     else if(grepl(".*COASTAL.*STORM.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "COASTAL_STORM"
+     }
+     else if(grepl(".*LIG.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "LIGHTNING"
+     }
+     else if(grepl(".*MARINE.*THUND.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "MARINE_THUNDERSTORM_WIND"
+     }
+     else if(grepl(".*THUND.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "THUNDERSTORM WIND"
+     }
+     else if(grepl(".*DRY.*|.*DUST.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "DUST_STORM"
+     }
+     else if(grepl(".*SLIDE.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "LANDSLIDE"
+     }
+     else if(grepl(".*RIP.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "RIP_CURRENT"
+     }
+     else if(grepl(".*FREEZE.*|.*FROST.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "ICE/FREEZE"
+     }
+     else if(grepl(".*FREEZING.*|.*GLAZE.*|.*ICE STORM.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "ICE_STORM"
+     }
+     else if(grepl(".*RAIN.*|.*DOWNBURST.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "HEAVY_RAIN"
+     }
+     else if(grepl(".*SEA.*|.*SURF.*|.*SWELLS.*|.*WAVE.*|.*HIGH.*TIDE.*|.*SURGE.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "HIGH_SURF"
+     }
+     else if(grepl(".*LOW.*TIDE.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "LOW_TIDE"
+     }
+     else if(grepl(".*ROAD.*|.*ICE.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "ICY_ROAD"
+     }
+     else if(grepl(".*MARINE.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "MARINE_HIGH_WIND"
+     }
+     else if(grepl(".*TROPICAL.*|.*TSTM.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "TROPICAL_STORM"
+     }
+     else if(grepl(".*WIND.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "HIGH_WIND"
+     }
+     else if(grepl(".*FIRE.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "WILDFIRE"
+     }
+     else if(grepl(".*WINTER.*|.*WINTRY.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "WINTER_STORM"
+     }
+     else if(grepl(".*HAIL.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "HAIL"
+     }
+     else if(grepl(".*FOG.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "DENSE_FOG"
+     }
+     else if(grepl(".*TSU.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "TSUNAMI"
+     }
+     else if(grepl(".*TYPH.*", ecoev$EVTYPE[i])){
+            ecoev$EVENT[i] <- "TYPHOON"
+     }
+     else {ecoev$EVENT[i] <- "OTHER"}
+}
+
+#Create column in subsetted data to group EVTYPE by EVENT
+economics <- as.data.table(economics)
+
+economics <- merge(economics, ecoev, all.x = TRUE)
+
+economics$EVENT <- as.factor(economics$EVENT)
+economics$EVTYPE <- as.factor(economics$EVTYPE)
+economics$cost <- as.numeric(economics$cost)
+
+
+
+
+
+```
+# remove(df1,economics, pophealth, i,x,y, df2,  w, z, ecoev, popev)
+DATA is TIDY
+
+#```{r population_health, results="asis"}
+pophealth <- group_by(pophealth, EVENT)
+pophealth$FATALITIES <- as.numeric(pophealth$FATALITIES)
+pophealth$INJURIES <- as.numeric(pophealth$INJURIES)
+sumpophealth <- summarise(pophealth, Total_Fatalities = sum(FATALITIES), Average_Fatalities = mean(FATALITIES), Total_Injuries = sum(INJURIES), Average_Injuries = mean(INJURIES))
+sumpophealth <- sumpophealth[order(-sumpophealth$Total_Fatalities),]
+top6Fat <- sumpophealth[1:6, "EVENT"]
+pophealth<- as.data.table(pophealth)
+setindex(pophealth, EVENT)
+mostharm <- pophealth[.(top6Fat), on = "EVENT" ]
+xt <- xtable(sumpophealth, caption = "Total and average/incident Fatalities and Injuries - Sorted by total Fatalities")
+print(xt, type = "html")
+mostharm.m1 = melt(mostharm, id = c("EVTYPE", "EVENT"))
+#pophealth <- mutate(pophealth, FATX = 1, INJX = 2)
+g <- ggplot(pophealth, aes(FATX, log10(FATALITIES)))+ geom_boxplot()
+g + geom_boxplot(INJX, log10(pophealth$INJURIES)) + facet_wrap(~EVENT.y, nrow = 6, ncol = 6)
+
+
+
+
+#
+```
+
+## Results
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
