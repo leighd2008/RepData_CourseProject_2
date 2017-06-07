@@ -1,5 +1,5 @@
 ---
-title: "Health and Economic Consequences of Storm Events"
+title: "Tsunamies and Hurricanes have the highest Health and Economic Consequences Respectively of Identified Storm Events"
 author: "Diane Leigh"
 date: "May 27, 2017"
 output:
@@ -27,7 +27,10 @@ ipak(packages)
 
 ```
 
+
+
 ## Synopsis
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern. The U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage. Here we use this database to identify Tsunamies as the weather event With the highest average number of Fatalities per event and Hurricanes as the weather event with the highest average economic cost due to property and crop damage per event.
 
 ## Data Processing
 
@@ -40,10 +43,11 @@ if(!exists("StormData"))StormData <- read.csv("StormData.bz2")
 
 ```
 
-We have two questions to answer: 
-1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
-2. Across the United States, which types of events have the greatest economic consequences? 
-So we created two subsets with only the necessary columns of data to answer the two (pophealth, economics) questions.
+###We have two questions to answer:  
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?  
+2. Across the United States, which types of events have the greatest economic consequences?  
+
+Two subsets were created with only the necessary columns of data to answer the two (pophealth, economics) questions.
 
 ```{r, subset_data, cache=TRUE}
 
@@ -73,12 +77,13 @@ setkey(economics, CROPDMGEXP)
 economics <- economics[df2]
 
 economics <- economics[, ':='(prpcst = PROPDMG * PRPMULT)]
-economics <- economics[, ':='(prpcst = CROPDMG * CRPMULT)]
-economics <- economics[, ':='(cost = prpcst + prpcst)]
+economics <- economics[, ':='(crpcst = CROPDMG * CRPMULT)]
+economics <- economics[, ':='(cost = prpcst + crpcst)]
 
 ```
 
-The EVTYPE column is not consistent with identifying an event (i.e. "COLD" and "COLD WAVE")  There are 48 EVTYPE identifiers in the STORM DATA PREPARATION provided by the National Weather Service (https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf), and 985 unique EVTYPE identifiers in the Storm Data. This next block cleans up the EVTYPE column in the subsetted data to match the events in the file supplied by the National Weather Service.
+The EVTYPE column is not consistent with identifying an event (i.e. "COLD" and "COLD WAVE")  There are 48 EVTYPE identifiers in the STORM DATA PREPARATION provided by the National Weather Service (https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf),  
+and 985 unique EVTYPE identifiers in the Storm Data. This next two code chunks (population health, economic) create an EVENT column containing a cleaned up version of the EVTYPE column in the subsetted data to match the events in the file supplied by the National Weather Service.
 
 ```{r, tidy_health_data, cache=TRUE}
 pophealth <- mutate_each(pophealth, funs(toupper))
@@ -108,9 +113,7 @@ for(i in 1:nrow(popev)){
      else if(grepl(".*COASTAL.*FLOOD.*|.*TIDAL.*FLOOD.*|.*EROSION.*", popev$EVTYPE[i])){
             popev$EVENT[i] <- "COASTAL_FLOOD"
      }
-     else if(grepl(".*FLASH.*FLOOD.*", popev$EVTYPE[i])){
-            popev$EVENT[i] <- "FLASH_FLOOD"
-     }
+     
      else if(grepl(".*FLOOD.*|.*RISING.*|.*WATER.*|.*FLD.*", popev$EVTYPE[i])){
             popev$EVENT[i] <- "FLOOD"
      }
@@ -202,9 +205,6 @@ pophealth$EVTYPE <- as.factor(pophealth$EVTYPE)
 pophealth$FATALITIES <- as.numeric(pophealth$FATALITIES)
 pophealth$INJURIES <- as.numeric(pophealth$INJURIES)
 
-
-
-
 ```
 
 ```{r, tidy_economics_data, cache=TRUE}
@@ -235,9 +235,7 @@ for(i in 1:nrow(ecoev)){
      else if(grepl(".*COASTAL.*FLOOD.*|.*TIDAL.*FLOOD.*|.*EROSION.*", ecoev$EVTYPE[i])){
             ecoev$EVENT[i] <- "COASTAL_FLOOD"
      }
-     else if(grepl(".*FLASH.*FLOOD.*", ecoev$EVTYPE[i])){
-            ecoev$EVENT[i] <- "FLASH_FLOOD"
-     }
+    
      else if(grepl(".*FLOOD.*|.*RISING.*|.*WATER.*|.*FLD.*", ecoev$EVTYPE[i])){
             ecoev$EVENT[i] <- "FLOOD"
      }
@@ -327,38 +325,88 @@ economics <- merge(economics, ecoev, all.x = TRUE)
 economics$EVENT <- as.factor(economics$EVENT)
 economics$EVTYPE <- as.factor(economics$EVTYPE)
 economics$cost <- as.numeric(economics$cost)
+economics$prpcst <- as.numeric(economics$prpcst)
+economics$crpcst <- as.numeric(economics$crpcst)
 
-
-
-
-
-```
-# remove(df1,economics, pophealth, i,x,y, df2,  w, z, ecoev, popev)
-DATA is TIDY
-
-#```{r population_health, results="asis"}
-pophealth <- group_by(pophealth, EVENT)
-pophealth$FATALITIES <- as.numeric(pophealth$FATALITIES)
-pophealth$INJURIES <- as.numeric(pophealth$INJURIES)
-sumpophealth <- summarise(pophealth, Total_Fatalities = sum(FATALITIES), Average_Fatalities = mean(FATALITIES), Total_Injuries = sum(INJURIES), Average_Injuries = mean(INJURIES))
-sumpophealth <- sumpophealth[order(-sumpophealth$Total_Fatalities),]
-top6Fat <- sumpophealth[1:6, "EVENT"]
-pophealth<- as.data.table(pophealth)
-setindex(pophealth, EVENT)
-mostharm <- pophealth[.(top6Fat), on = "EVENT" ]
-xt <- xtable(sumpophealth, caption = "Total and average/incident Fatalities and Injuries - Sorted by total Fatalities")
-print(xt, type = "html")
-mostharm.m1 = melt(mostharm, id = c("EVTYPE", "EVENT"))
-#pophealth <- mutate(pophealth, FATX = 1, INJX = 2)
-g <- ggplot(pophealth, aes(FATX, log10(FATALITIES)))+ geom_boxplot()
-g + geom_boxplot(INJX, log10(pophealth$INJURIES)) + facet_wrap(~EVENT.y, nrow = 6, ncol = 6)
-
-
-
-
-#
 ```
 
 ## Results
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+###Question #1: Across the United States, which types of events (as indicated in the EVENT variable) are most harmful with respect to population health?
+
+I have interpreted this to mean on a per event basis, so Figure 1 presents the average number of Fatalities and Injuries reported for each of the top 6 event types. I did not combine the fatality and injury data, as more information on the severity of injury would be needed to weight the injuries relative to a fatality. Table 1 presents the Total, average and standard deviation for both fatalities and injuries. Table 1 is sorted by Total fatalities. It is worth noting that identifying the most harmful event types by average (Figure 1) gives a different result than if the totals had been used (first 6 rows of TABLE 1)
+```{r population_health, results="asis", fig.width= 8, fig.height= 6}
+
+# Calculate Total, mean and standard deviation for the number of Fatalities and injuries reported for each event type.
+sumpophealth <- pophealth[, .(Total_Fatalities = sum(FATALITIES),
+                          Average_Fatalities = mean(FATALITIES), 
+                          STD_Fat = sd(FATALITIES),
+                          Total_Injuries = sum(INJURIES), 
+                          Average_Injuries = mean(INJURIES),
+                          STD_Inj = sd(INJURIES)),
+                          by = EVENT]
+
+# Find the top 6 event types with respect to average number of fatalities reported.
+
+sumpophealth <- sumpophealth[order(-sumpophealth$Average_Fatalities),]
+top6avgfat <- sumpophealth[1:6, ]
+
+# Reorder based on total fatalities 
+sumpophealth <- sumpophealth[order(-sumpophealth$Total_Fatalities),]
+
+xtpop <- xtable(sumpophealth, caption = "Table 1: Total and average/incident Fatalities and Injuries - Sorted by total Fatalities", align = "cccccccc")
+
+# Melt data for plotting
+top6avgfat.m1 = melt(top6avgfat, id.vars = "EVENT", measure = patterns("^Total_", "^Average_", "^STD_"), value.name = c("Total", "Average", "STD"))
+top6avgfat.m1 <- top6avgfat.m1[variable == 1, variable := "Fatalities"]
+top6avgfat.m1 <- top6avgfat.m1[variable == 2, variable := "Injuries"]
+
+top6avgfat.m1$EVENT <- as.character(top6avgfat.m1$EVENT)
+top6avgfat.m1$EVENT <- factor(top6avgfat.m1$EVENT, levels = unique(top6avgfat.m1$EVENT))
+
+g <- ggplot(top6avgfat.m1, aes(variable, Average, ymin = Average - STD, ymax = Average + STD, color = variable)) + geom_point() + geom_errorbar() + facet_wrap("EVENT", nrow = 1, ncol = 6) + theme(legend.position="none") + labs(x = NULL, y = "Average count per EVENT", title = "Figure 1: Tsunamies Have The Highest Average Number of Fatalities Per Event", subtitle = "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2")
+
+g
+
+print(xtpop, type = "html", include.rownames = FALSE, caption.placement = "top")
+
+```
+
+###Question #2:Across the United States, which types of events (as indicated in the EVENT variable) have the greatest economic consequences? 
+
+I have interpreted this to mean on a per event basis, so Figure 2 presents the average total cost (property + crop damage) reported for each of the top 6 event types.  Table 2 presents the Total, average and standard deviation for Total, Property and Crop Damage. Table 1 is sorted by Total Damage Cost. It is worth noting that identifying the most costly event types by average (Figure 2) gives a different result than if the totals had been used (first 6 rows of TABLE 2)
+
+```{r economics, results="asis"}
+
+# Calculate Total, mean and standard deviation for the damage cost reported for Total, property and crop damage for each event type.
+sumeconomics <- economics[, .(Total_Cost = sum(cost),
+                          Average_Cost = mean(cost), 
+                          STD_Cost = sd(cost),Total_prop = sum(prpcst),
+                          Average_prop = mean(prpcst), 
+                          STD_prop = sd(prpcst),Total_crop = sum(crpcst),
+                          Average_crop = mean(crpcst), 
+                          STD_crop = sd(crpcst)),
+                          by = EVENT]
+
+# Find the top 6 event types with respect to average cost for total damage.
+sumeconomics <- sumeconomics[order(-sumeconomics$Average_Cost),]
+top6avgcost <- sumeconomics[1:6, ]
+
+# Reorder based on total cost 
+sumeconomics <- sumeconomics[order(-sumeconomics$Total_Cost),]
+top6cost <- sumeconomics[1:6, "EVENT"]
+
+xteco <- xtable(sumeconomics, caption = "Table 2: Total and average/incident Cost is USD - Sorted by total Cost", digits=-1, align = "ccccccccccc")
+
+
+top6avgcost$EVENT <- as.character(top6avgcost$EVENT)
+top6avgcost$EVENT <- factor(top6avgcost$EVENT, levels = unique(top6avgcost$EVENT))
+
+g <- ggplot(top6avgcost, aes(EVENT, Average_Cost, ymin = Average_Cost - STD_Cost, ymax = Average_Cost + STD_Cost)) + geom_point() + geom_errorbar() + labs(x = "Event Type", y = "Average cost per EVENT (USD)", title = "Figure 2: Hurricanes Have The Highest Average Damage Costs Per Event", subtitle = "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2")
+
+g
+
+print(xteco, type = "html", include.rownames = FALSE, caption.placement = "top")
+
+
+```

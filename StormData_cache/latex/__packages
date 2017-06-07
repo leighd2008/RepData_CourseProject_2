@@ -1,6 +1,10 @@
 base
-plyr
-data.table
+tidyverse
 ggplot2
+tibble
+tidyr
+readr
+purrr
 dplyr
+data.table
 xtable
